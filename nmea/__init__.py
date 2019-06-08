@@ -1,2 +1,7 @@
-from nmea.server import NMEAServer
-from nmea.formatter import *
+from .server import NMEAServer
+from .formatter import *
+
+__all__ = [
+        'server',
+        'formatter',
+        ]
