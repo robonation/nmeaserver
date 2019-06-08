@@ -4,10 +4,10 @@ from setuptools import setup, find_packages
 
 setup(
     name='nmea',
-    version='0.1.3',
+    version='0.1.4',
     description='Python framework for a NMEA 0183 TCP Server inspired by Flask developer API',
     url='https://github.com/robonation/nmea',
-    download_url = 'https://github.com/robonation/nmea/archive/v0.1.3.tar.gz',
+    download_url = 'https://github.com/robonation/nmea/archive/v0.1.4.tar.gz',
     author='Felix Pageau',
     author_email='pageau@robonation.org',
     license='Apache License 2.0',
