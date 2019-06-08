@@ -1,0 +1,5 @@
+.project
+.pydevproject
+.settings/
+nmeaserver.egg-info/
+*.pyc
