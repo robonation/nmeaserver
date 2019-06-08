@@ -7,7 +7,7 @@ The nmeaserver framework is inspired from the Flask interface to make it straigh
 
 To create your first server, all you need to do is:
 ```python
-from nmeaserver import server, formatter
+from nmea import server, formatter
 
 # Creates a nmeaserver
 nmeaserver = server.NMEAServer()

@@ -253,7 +253,7 @@ class NMEAServer:
         """
 
         def decorator(f):
-            self.add_connection_context_creator(f)
+            self.add_context_creator(f)
             return f
 
         return decorator
@@ -474,7 +474,7 @@ class NMEAServer:
         self.server = self.ThreadedTCPServer(
             (self.host, self.port), NMEAServer.MyTCPHandler, self)
         server_thread = threading.Thread(
-            name='nmeaserver', target=self.server.serve_forever)
+            name='nmea', target=self.server.serve_forever)
         server_thread.daemon = True
         server_thread.start()
 
