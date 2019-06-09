@@ -7,16 +7,16 @@ The nmeaserver framework is inspired from the Flask interface to make it straigh
 
 To create your first server, all you need to do is:
 ```python
-from nmea import server, formatter
+from nmeaserver import server, formatter
 
 # Creates a nmeaserver
-nmeaserver = server.NMEAServer()
+app = server.NMEAServer()
 
 # Create a message handler that receives all messages with the sentence ID: 'RXTST'
-@nmeaserver.message('RXTST')
+@app.message('RXTST')
 def tst_handler(self, context, message):
     return formatter.format('TXTST,Message Received!')
 
 # Starts the server
-nmeaserver.start()
+app.start()
 ```

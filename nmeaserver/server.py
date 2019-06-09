@@ -432,8 +432,8 @@ class NMEAServer:
         # read TCP message and use the NMEAServer.dispatch().
         def handle(self):
             context = self.default_context()
-            if self.server.context_creator is not None:
-                self.context = self.server.context_creator(context)
+            if self.server.connection_context_creator is not None:
+                self.context = self.server.connection_context_creator(context)
 
             try:
                 while not self.server.shutdown_flag:
