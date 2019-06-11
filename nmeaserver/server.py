@@ -1,6 +1,7 @@
 import threading
 import SocketServer
 import formatter
+import logging
 
 class NMEAServer:
     #: The dictionary of handler functions for well-formed nmea messages.
@@ -413,71 +414,74 @@ class NMEAServer:
         """The StreamRequestHandler instance to use to create a NMEAServer"""
 
         context = {}
-        server = None
+        nmeaserver = None
 
         def __init__(self, request, client_address,
                      server, NMEAServer_instance):
             if NMEAServer_instance is None:
-                raise ValueError('server cannot be None')
+                raise ValueError('nmeaserver cannot be None')
 
-            self.server = NMEAServer_instance
+            self.nmeaserver = NMEAServer_instance
             SocketServer.StreamRequestHandler.__init__(
                 self, request, client_address, server)
 
         def default_context(self):
+            """Creates a default connection context dictionary"""
+
             default_context = {}
             default_context['client_address'] = self.client_address[0]
             return default_context
 
-        # read TCP message and use the NMEAServer.dispatch().
         def handle(self):
+            """Handles a request and pass it to NMEAServer.dispatch()"""
+
             context = self.default_context()
-            if self.server.connection_context_creator is not None:
-                self.context = self.server.connection_context_creator(context)
+            if self.nmeaserver.connection_context_creator is not None:
+                self.context = self.nmeaserver.connection_context_creator(context)
 
             try:
-                while not self.server.shutdown_flag:
+                while not self.nmeaserver.shutdown_flag:
                     received = self.rfile.readline().strip()
-                    if self.server.debug:
+                    if self.nmeaserver.debug:
                         print("< ", received)
-                    response = self.server.dispatch(received, self.context)
+                    response = self.nmeaserver.dispatch(received, self.context)
 
                     if response is not None:
-                        if self.server.debug:
+                        if self.nmeaserver.debug:
                             print("> ", response)
                         self.wfile.write(format(response))
                         self.wfile.flush()
-            except BaseException:
+            except BaseException as e:
                 print("Connection closing")
 
     class ThreadedTCPServer(SocketServer.ThreadingTCPServer):
-        server = None
+        nmeaserver = None
 
         def __init__(self, server_address, RequestHandlerClass,
                      NMEAServer_instance):
             if NMEAServer_instance is None:
-                raise ValueError('server cannot be None')
+                raise ValueError('nmeaserver cannot be None')
 
             SocketServer.ThreadingTCPServer.__init__(
                 self, server_address, RequestHandlerClass)
-            self.server = NMEAServer_instance
+            self.nmeaserver = NMEAServer_instance
 
             print('Server Address:', server_address[0])
-            print('Connect to server on port:', server_address[1])
+            print('Connect to nmeaserver on port:', server_address[1])
 
         def finish_request(self, request, client_address):
             """Finish one request by instantiating RequestHandlerClass."""
             self.RequestHandlerClass(
-                request, client_address, self, self.server)
+                request, client_address, self, self.nmeaserver)
 
     def start(self):
-        self.server = self.ThreadedTCPServer(
+        self.nmeaserver = self.ThreadedTCPServer(
             (self.host, self.port), NMEAServer.MyTCPHandler, self)
         server_thread = threading.Thread(
-            name='nmea', target=self.server.serve_forever)
+            name='nmea', target=self.nmeaserver.serve_forever)
         server_thread.daemon = True
         server_thread.start()
 
     def stop(self):
         self.shutdown_flag = True
-        self.server.shutdown()
+        self.nmeaserver.shutdown()
