@@ -2,8 +2,20 @@ import threading
 import SocketServer
 import formatter
 import logging
+import signal
+import select
+import time
+
+logger = logging.getLogger("nmeaserver")
+signal.signal(signal.SIGINT, signal.SIG_DFL)
 
 class NMEAServer:
+    def default_error_handler(self, context, err):
+        logger.debug("Error detected in default nmeaserver handler", kwargs={"exc_info": 1})
+
+    def default_bad_checksum(self, context, raw_message):
+        logger.debug("Received message '{}' with a bad checksum".format(raw_message))
+
     #: The dictionary of handler functions for well-formed nmea messages.
     #: .. versionadded:: 1.0
     message_handlers = {}
@@ -25,12 +37,12 @@ class NMEAServer:
 
     #: An optional handler that when defined is called when an error occurs.
     #: .. versionadded:: 1.0
-    error_handler = None
+    error_handler = default_error_handler
 
     #: An optional handler that when defined is called when a message without a
     #: checksum or with an invalid checksum is received.
     #: .. versionadded:: 1.0
-    bad_checksum_message_handler = None
+    bad_checksum_message_handler = default_bad_checksum
 
     #: An optional function that creates a connection-scoped dictionary that
     # represents the 'context' of that connection.
@@ -49,9 +61,13 @@ class NMEAServer:
     #: Whether this NMEAServer is being shutdown.
     shutdown_flag = False
 
-    def __init__(self, host='', port=9000):
+    #: The thread instance running this server
+    server_thread = None
+
+    def __init__(self, host='', port=9000, debug=False):
         self.host = host
         self.port = port
+        self.debug = debug
 
     def message(self, message_id):
         """A decorator that registers a function for handling a given message
@@ -92,10 +108,12 @@ class NMEAServer:
                              for the specific message_id
         """
 
+        if '$' in message_id:
+                raise AssertionError("message_id should not contain a '$'")
         if message_id is not None:
             self.message_handlers[message_id] = handler_func
         else:
-            raise AssertionError("Cannot bing a handler find to 'None'")
+            raise AssertionError("Cannot bind a handler find to 'None'")
 
     def prehandler(self):
         """A decorator that registers a function for to be called before
@@ -337,7 +355,7 @@ class NMEAServer:
         but offering a decorator::
 
             @NMEAServer.error()
-            def error(context, raw_message):
+            def error(context, raw_message, err):
                 print "something went wrong =("
         """
 
@@ -354,12 +372,12 @@ class NMEAServer:
         For example::
 
             @NMEAServer.error()
-            def error(context, raw_message):
+            def error(context, raw_message, err):
                 print "something went wrong =("
 
         Is the same as::
 
-            def error(context, raw_message):
+            def error(context, raw_message, err):
                 print "something went wrong =("
             app.add_error_handler(error)
 
@@ -373,7 +391,7 @@ class NMEAServer:
         May be extended, do not override."""
 
         if self.message_pre_handler is not None:
-            self.message_pre_handler(connection_context, raw_message)
+            raw_message = self.message_pre_handler(connection_context, raw_message)
 
         try:
             if raw_message == '':
@@ -405,10 +423,13 @@ class NMEAServer:
             if self.bad_checksum_message_handler is not None:
                 return self.bad_checksum_message_handler(
                     connection_context, raw_message)
-        except BaseException:
+        except EOFError as err:
+            raise
+        except BaseException as err:
             if self.error_handler is not None:
-                self.error_handler(connection_context)
+                self.error_handler(connection_context, err)
         return None
+        
 
     class MyTCPHandler(SocketServer.StreamRequestHandler):
         """The StreamRequestHandler instance to use to create a NMEAServer"""
@@ -441,18 +462,25 @@ class NMEAServer:
 
             try:
                 while not self.nmeaserver.shutdown_flag:
-                    received = self.rfile.readline().strip()
-                    if self.nmeaserver.debug:
-                        print("< ", received)
-                    response = self.nmeaserver.dispatch(received, self.context)
-
-                    if response is not None:
+                    poll_obj = select.poll()
+                    poll_obj.register(self.rfile, select.POLLIN)
+                    
+                    poll_result = poll_obj.poll(0)
+                    if poll_result: 
+                        received = self.rfile.readline().strip()
                         if self.nmeaserver.debug:
-                            print("> ", response)
-                        self.wfile.write(format(response))
-                        self.wfile.flush()
+                            logger.debug("< " + received)
+                        response = self.nmeaserver.dispatch(received, self.context)
+    
+                        if response is not None:
+                            if self.nmeaserver.debug:
+                                logger.debug("> " + response)
+                            self.wfile.write(format(response))
+                            self.wfile.flush()
+                    else:
+                        time.sleep(0.1)
             except BaseException as e:
-                print("Connection closing")
+                logger.warn("Connection closing")
 
     class ThreadedTCPServer(SocketServer.ThreadingTCPServer):
         nmeaserver = None
@@ -465,23 +493,34 @@ class NMEAServer:
             SocketServer.ThreadingTCPServer.__init__(
                 self, server_address, RequestHandlerClass)
             self.nmeaserver = NMEAServer_instance
+            self.daemon_threads = True
 
-            print('Server Address:', server_address[0])
-            print('Connect to nmeaserver on port:', server_address[1])
+            logger.info('Server Address: {}:{}'.format(
+                str(server_address[0] or "localhost"), str(server_address[1])))
 
         def finish_request(self, request, client_address):
             """Finish one request by instantiating RequestHandlerClass."""
             self.RequestHandlerClass(
                 request, client_address, self, self.nmeaserver)
 
+        def process_request(self, request, client_address):
+            """Start a new thread to process the request."""
+            t = threading.Thread(target = self.process_request_thread,
+                                 args = (request, client_address),
+                                 name = "client-"+str(client_address))
+            t.daemon = self.daemon_threads
+            t.start()
+
     def start(self):
         self.nmeaserver = self.ThreadedTCPServer(
             (self.host, self.port), NMEAServer.MyTCPHandler, self)
-        server_thread = threading.Thread(
+        self.server_thread = threading.Thread(
             name='nmea', target=self.nmeaserver.serve_forever)
-        server_thread.daemon = True
-        server_thread.start()
+        self.server_thread.daemon = True
+        self.server_thread.start()
 
-    def stop(self):
+    def shutdown(self):
         self.shutdown_flag = True
         self.nmeaserver.shutdown()
+        self.nmeaserver.server_close()
+        self.server_thread.join()
