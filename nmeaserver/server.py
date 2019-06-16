@@ -11,21 +11,26 @@ signal.signal(signal.SIGINT, signal.SIG_DFL)
 
 class NMEAServer:
     def default_error_handler(self, context, err):
-        logger.debug("Error detected in default nmeaserver handler", kwargs={"exc_info": 1})
-        return formatter.format("TXERR, The nmeaserver experienced an exception. Check the debug logs")
+        logger.debug("Error detected in default nmeaserver handler", 
+                     kwargs={"exc_info": 1})
+        return formatter.format(self.error_sentence_id + 
+                                ", The nmeaserver experienced an exception." \
+                                " Check the debug logs")
 
     def default_bad_checksum(self, context, raw_message):
         good_checksum = formatter.calc_checksum(raw_message)
-        err_msg = "Message '{}' has a bad checksum. Correct checksum is '{}'".format(raw_message, good_checksum)
+        err_msg = "Message '{}' has a bad checksum. Correct checksum is '{}'" \
+            .format(raw_message, good_checksum)
         logger.debug(err_msg)
-        return formatter.format("TXERR," + err_msg)
+        return formatter.format(self.error_sentence_id + "," + err_msg)
 
 
     def default_missing_handler(self, context, message):
         valid_ids = ", ".join(self.message_handlers.keys())
-        err_msg = "Received message '{}' but the only valid messageIds are: '{}'".format(message['sentence_id']), valid_ids
-        
-        return formatter.format("TXERR," + err_msg)
+        err_msg = "Received message '{}' but the  valid messageIds are: '{}'" \
+            .format(message['sentence_id'], valid_ids)
+        logger.debug(err_msg)
+        return formatter.format(self.error_sentence_id + "," + err_msg)
 
     #: The dictionary of handler functions for well-formed nmea messages.
     #: .. versionadded:: 1.0
@@ -80,11 +85,17 @@ class NMEAServer:
 
     #: The thread instance running this server
     server_thread = None
+    
+    error_sentence_id = 'TXERR'
 
-    def __init__(self, host='', port=9000, debug=False):
+    def __init__(self, host='', 
+                 port=9000, 
+                 debug=False, 
+                 error_sentence_id='TXERR'):
         self.host = host
         self.port = port
         self.debug = debug
+        self.error_sentence_id = error_sentence_id
 
     def message(self, message_id):
         """A decorator that registers a function for handling a given message
@@ -453,14 +464,14 @@ class NMEAServer:
         May be extended, do not override."""
 
         if self.message_pre_handler is not None:
-            raw_message = self.message_pre_handler(connection_context, raw_message)
+            raw_message = self.message_pre_handler(connection_context, 
+                                                   raw_message)
 
         try:
             if raw_message == '':
                 raise EOFError("Empty message received. Ending comm")
 
             message = formatter.parse(raw_message)
-
             sentence_id = message['sentence_id']
             response = None
             try:
@@ -488,6 +499,7 @@ class NMEAServer:
         except EOFError as err:
             raise
         except BaseException as err:
+            logger.error("Detected exception: {}".format(str(err)))
             if self.error_handler is not None:
                 self.error_handler(connection_context, err)
         return None
@@ -520,11 +532,13 @@ class NMEAServer:
 
             context = self.default_context()
             if self.nmeaserver.connection_context_creator is not None:
-                self.context = self.nmeaserver.connection_context_creator(context)
+                self.context = self.nmeaserver.connection_context_creator(
+                    context)
 
             if self.nmeaserver.response_streamer is not None:
                 self.context['stream'] = True
-                t = threading.Thread(target = self.nmeaserver.response_streamer,
+                t = threading.Thread(
+                                target = self.nmeaserver.response_streamer,
                                  args = (self.context, self.wfile),
                                  name = "stream-"+str(self.client_address[0]))
                 t.daemon = True
@@ -540,7 +554,8 @@ class NMEAServer:
                         received = self.rfile.readline().strip()
                         if self.nmeaserver.debug:
                             logger.debug("< " + received)
-                        response = self.nmeaserver.dispatch(received, self.context)
+                        response = self.nmeaserver.dispatch(
+                            received, self.context)
     
                         if response is not None:
                             if self.nmeaserver.debug:
@@ -561,6 +576,7 @@ class NMEAServer:
             if NMEAServer_instance is None:
                 raise ValueError('nmeaserver cannot be None')
 
+            SocketServer.TCPServer.allow_reuse_address = True
             SocketServer.ThreadingTCPServer.__init__(
                 self, server_address, RequestHandlerClass)
             self.nmeaserver = NMEAServer_instance
