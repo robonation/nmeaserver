@@ -40,11 +40,13 @@ def calc_checksum(nmea_str):
         return '0' + checksum
 
 
-def format(sentence):
+def format(sentence, new_line=False):
     if sentence.find('*') < 0:
         sentence = sentence + '*' + calc_checksum(sentence)
     if sentence.startswith('$') is False:
         sentence = '$' + sentence
+    if new_line:
+        sentence + '\r' + '\n'
     return sentence
 
 

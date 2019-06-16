@@ -60,6 +60,12 @@ class NMEAServer:
     #: .. versionadded:: 1.0
     connection_context_creator = None
 
+    #: An optional function to be called when a new connection is created that
+    #: can stream responses without the need for a request. Note that this
+    #: functional will be called by a new thread different from the listener.
+    #: .. versionadded:: 0.1.8
+    response_streamer = None
+
     #: The host to start this NMEAServer on.
     host = None
 
@@ -397,6 +403,51 @@ class NMEAServer:
 
         self.error_handler = function
 
+    def response_stream(self):
+        """A decorator that registers a function for used to generate a 
+        stream of responses without a request. This will only be called
+        once for each new connection. Functionally identical to 
+        :meth:`add_response_stream` but offering a decorator::
+
+            @NMEAServer.error()
+            def error(context, raw_message, err):
+                print "something went wrong =("
+        """
+
+        def decorator(f):
+            self.add_response_stream(f)
+            return f
+
+        return decorator
+
+    def add_response_stream(self, function=None):
+        """Registers a function for used to generate a stream of responses
+        without a request. This will only be called once for each new
+        connection. Use the value context['stream'] to loop over to detect
+        when to stop streaming messages. Functionally identical to 
+        :meth:`response_stream` decorator.
+
+        For example::
+
+            @NMEAServer.response_stream()
+            def response_stream(context, wfile):
+                while context['stream']:
+                    wfile.write(formatter.format("TXMSG,Important"))
+                    wfile.flush
+
+        Is the same as::
+
+            def response_stream(context, wfile):
+                while context['stream']:
+                    wfile.write(formatter.format("TXMSG,Important"))
+                    wfile.flush
+            app.add_response_stream(response_stream)
+
+        :param function: the function to call when a connection is created
+        """
+
+        self.response_streamer = function
+
     def dispatch(self, raw_message, connection_context):
         """Dispatch the messages received on the NMEAServer socket.
         May be extended, do not override."""
@@ -471,6 +522,14 @@ class NMEAServer:
             if self.nmeaserver.connection_context_creator is not None:
                 self.context = self.nmeaserver.connection_context_creator(context)
 
+            if self.nmeaserver.response_streamer is not None:
+                self.context['stream'] = True
+                t = threading.Thread(target = self.nmeaserver.response_streamer,
+                                 args = (self.context, self.wfile),
+                                 name = "stream-"+str(self.client_address[0]))
+                t.daemon = True
+                t.start()
+
             try:
                 while not self.nmeaserver.shutdown_flag:
                     poll_obj = select.poll()
@@ -491,6 +550,7 @@ class NMEAServer:
                     else:
                         time.sleep(0.1)
             except BaseException as e:
+                self.context['stream'] = False
                 logger.warn("Connection closing")
 
     class ThreadedTCPServer(SocketServer.ThreadingTCPServer):
