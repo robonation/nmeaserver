@@ -12,9 +12,20 @@ signal.signal(signal.SIGINT, signal.SIG_DFL)
 class NMEAServer:
     def default_error_handler(self, context, err):
         logger.debug("Error detected in default nmeaserver handler", kwargs={"exc_info": 1})
+        return formatter.format("TXERR, The nmeaserver experienced an exception. Check the debug logs")
 
     def default_bad_checksum(self, context, raw_message):
-        logger.debug("Received message '{}' with a bad checksum".format(raw_message))
+        good_checksum = formatter.calc_checksum(raw_message)
+        err_msg = "Message '{}' has a bad checksum. Correct checksum is '{}'".format(raw_message, good_checksum)
+        logger.debug(err_msg)
+        return formatter.format("TXERR," + err_msg)
+
+
+    def default_missing_handler(self, context, message):
+        valid_ids = ", ".join(self.message_handlers.keys())
+        err_msg = "Received message '{}' but the only valid messageIds are: '{}'".format(message['sentence_id']), valid_ids
+        
+        return formatter.format("TXERR," + err_msg)
 
     #: The dictionary of handler functions for well-formed nmea messages.
     #: .. versionadded:: 1.0
@@ -23,7 +34,7 @@ class NMEAServer:
     #: The handler to be called when a message with an unknown messageId is
     #: received.
     #: .. versionadded:: 1.0
-    missing_handler = None
+    missing_handler = default_missing_handler
 
     #: An optional handler that when defined is called prior to any message
     #: handler function.
