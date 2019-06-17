@@ -488,10 +488,11 @@ class NMEAServer:
                             connection_context, message)
 
             if self.message_post_handler is not None:
-                return self.message_post_handler(
+                self.message_post_handler(
                     connection_context, message, response)
-            else:
-                return response
+            if not response.endswith("\n"):
+                response = response + "\n"
+            return response
         except ValueError:
             if self.bad_checksum_message_handler is not None:
                 return self.bad_checksum_message_handler(
